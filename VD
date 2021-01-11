@@ -1,0 +1,312 @@
+1.aamsadm002_start_nginx_keepalive_root.yml 
+
+---
+- hosts: aamsadm002
+  gather_facts: false
+  vars:
+    ansible_user: mbt-user
+    ansible_ssh_pass: eW1fV4pD
+    ansible_sudo_pass: eW1fV4pD
+#    REDIS_PASS: MpDHeaNz1k6ZUrXv
+    time_deploy: "{{lookup('pipe','date +%Y%m%d')}}"
+  tasks:
+  - name: start nginx and keepalived
+    block:
+      - name: Start nginx
+        systemd:
+          name: nginx
+          state: started
+      - name: Start keepalived
+        systemd:
+          name: keepalived
+          state: started        
+          
+    become: yes
+    become_user: root
+
+
+2. aamsadm002_start_redis_activemq.yml
+
+---
+- hosts: aamsadm002
+  gather_facts: false
+  vars:
+#    ansible_user: mbt-user
+#    ansible_ssh_pass: eW1fV4pD
+#    ansible_sudo_pass: eW1fV4pD
+#    REDIS_PASS: MpDHeaNz1k6ZUrXv
+    time_deploy: "{{lookup('pipe','date +%Y%m%d')}}"
+  tasks:
+  - name: start redis and activemq
+    block:
+      - name: Start activemq
+        shell: "/opt/activemq/bin/activemq start &"
+      - name: Start redis-sentinel
+        shell: "/opt/redis/src/redis-sentinel /opt/redis/conf/sentinel.conf &"
+      - name: Start redis-sentinel
+        shell: "/opt/redis/src/redis-server /opt/redis/conf/redis.conf &" 
+
+3.aamsadm002_stop_redis.yml
+
+---
+- hosts: aamsadm002
+  gather_facts: false
+  vars:
+#    ansible_user: mbt-user
+#    ansible_ssh_pass: eW1fV4pD
+#    ansible_sudo_pass: eW1fV4pD
+    REDIS_PASS: MpDHeaNz1k6ZUrXv
+    time_deploy: "{{lookup('pipe','date +%Y%m%d')}}"
+  tasks:
+  - name: Get PID redis-sentinel
+    shell: "ps -ef | grep -v grep | grep -w redis-sentinel | awk '{print $2}'"
+    register: running_processes
+  - name: Kill running processes
+    shell: "kill -9 {{item}}"
+    with_items: "{{ running_processes.stdout_lines }}"
+  - name: Shutdown redis
+    shell: "/opt/redis/src/redis-cli -a {{REDIS_PASS}} SHUTDOWN SAVE"
+    ignore_errors: yes
+    
+4.bams001_start_keepalived.yml  
+
+---
+- hosts: bams001
+  gather_facts: false
+  vars:
+    ansible_user: mbt-user
+    ansible_ssh_pass: eW1fV4pD
+    ansible_sudo_pass: eW1fV4pD
+    REDIS_PASS: MpDHeaNz1k6ZUrXv
+    time_deploy: "{{lookup('pipe','date +%Y%m%d')}}"
+  tasks:
+  - name: start keepalived
+    block:
+      - name: Start keepalived
+        systemd:
+          name: keepalived
+          state: started                       
+    become: yes
+    become_user: root
+
+5.bams001_start_redis.yml  
+
+---
+- hosts: bams001
+  gather_facts: false
+  vars:
+#    ansible_user: mbt-user
+#    ansible_ssh_pass: eW1fV4pD
+#    ansible_sudo_pass: eW1fV4pD
+    REDIS_PASS: MpDHeaNz1k6ZUrXv
+    time_deploy: "{{lookup('pipe','date +%Y%m%d')}}"
+  tasks:
+  - name: start redis
+    block:      
+      - name: Start redis-sentinel
+        shell: "/opt/redis/src/redis-sentinel /opt/redis/conf/sentinel.conf &"
+      - name: Start redis-sentinel
+        shell: "/opt/redis/src/redis-server /opt/redis/conf/redis.conf &"                
+#    become: yes
+#    become_user: root
+
+6.bams001_stop_redis.yml  
+
+---
+- hosts: bams001
+  gather_facts: false
+  vars:
+#    ansible_user: mbt-user
+#    ansible_ssh_pass: eW1fV4pD
+#    ansible_sudo_pass: eW1fV4pD
+    REDIS_PASS: MpDHeaNz1k6ZUrXv
+    time_deploy: "{{lookup('pipe','date +%Y%m%d')}}"
+  tasks:
+  - name: Get PID redis-sentinel
+    shell: "ps -ef | grep -v grep | grep -w redis-sentinel | awk '{print $2}'"
+    register: running_processes
+  - name: Kill running processes
+    shell: "kill -9 {{item}}"
+    with_items: "{{ running_processes.stdout_lines }}"
+  - name: Shutdown redis
+    shell: "/opt/redis/src/redis-cli -a {{REDIS_PASS}} SHUTDOWN SAVE"
+    ignore_errors: yes
+
+7.cas.yml 
+
+---
+- hosts: aamsmdl001,aamsmdl002
+  gather_facts: false
+  vars:
+    ansible_user: mbt-user
+    ansible_ssh_pass: eW1fV4pD
+    ansible_sudo_pass: eW1fV4pD
+    time_deploy: "{{lookup('pipe','date +%Y%m%d')}}"
+  tasks:
+  - name: Deploy daemontools
+    block:
+      - name: Create folder for logs
+        file: 
+          path: "/opt/ams/daemontools/"
+          state: directory
+          recurse: yes     
+      - name: Create folder service
+        file:
+          path: /service/cas
+          state: directory          
+      - name: Copy file
+        copy:
+          src: /opt/release/{{ time_deploy }}/cas/run
+          dest: /service/cas/
+          mode: 0777          
+    become: yes
+    become_user: root  
+    
+8.check_list.yml  
+
+---
+- hosts: bams001,aamsadm002
+  vars:
+    ansible_user: mbt-user
+    ansible_ssh_pass: eW1fV4pD
+    ansible_become_pass: eW1fV4pD
+    DATE_DEPLOY: "{{ lookup('pipe', 'date +%Y%m%d') }}"
+  tasks:
+  - name: Check list {{ACTION}}
+    block:
+    - name: Check boot message ERROR
+      shell: "grep -ir 'ERROR' /var/log/dmesg > /tmp/check_list.{{ACTION}}.{{inventory_hostname}}"
+      ignore_errors: yes
+    - name: Check boot message WARN
+      shell: "grep -ir 'WARN' /var/log/dmesg >> /tmp/check_list.{{ACTION}}.{{inventory_hostname}}"
+      ignore_errors: yes
+    - name: Check route
+      shell: "/usr/sbin/route -n >> /tmp/check_list.{{ACTION}}.{{inventory_hostname}}"
+    - name: Check network  ifconfig
+      shell: "/usr/sbin/ifconfig >> /tmp/check_list.{{ACTION}}.{{inventory_hostname}}"
+    - name: Check network ip
+      shell: "/usr/sbin/ip addr show >> /tmp/check_list.{{ACTION}}.{{inventory_hostname}}"
+    - name: check nfs
+      shell: "/usr/sbin/service nfs status >> /tmp/check_list.{{ACTION}}.{{inventory_hostname}}"
+      ignore_errors: yes
+    - name: check disk
+      shell: "/usr/bin/df -h >> /tmp/check_list.{{ACTION}}.{{inventory_hostname}}"
+    - name: check selinux
+      shell: "/usr/sbin/sestatus >> /tmp/check_list.{{ACTION}}.{{inventory_hostname}}"
+    - name: Check ulimit
+      shell: "ulimit -a >> /tmp/check_list.{{ACTION}}.{{inventory_hostname}}"
+    - name: Create folder backup
+      file:
+        path: "/opt/backup/{{DATE_DEPLOY}}"
+        state: directory
+      register: folder_create
+    - name: Get file from {{inventory_hostname}}
+      fetch:
+        dest: "{{folder_create.path}}/"
+        src: "/tmp/check_list.{{ACTION}}.{{inventory_hostname}}"
+        flat: yes
+    when:
+    - ACTION is defined
+  become: yes
+  become_user: root
+  
+9.mypage_webre_wallet_no.yml 
+
+---
+- hosts: aamsmdl003,aamsmdl004
+  gather_facts: false
+  vars:
+    ansible_user: mbt-user
+    ansible_ssh_pass: eW1fV4pD
+    ansible_sudo_pass: eW1fV4pD
+    time_deploy: "{{lookup('pipe','date +%Y%m%d')}}"
+  tasks:
+  - name: Deploy daemontools
+    block:
+      - name: Create folder for logs
+        file: 
+          path: /opt/ams/daemontools/
+          state: directory
+          recurse: yes    
+      - name: Create folder service
+        file:
+          path: /service/{{ item }}
+          state: directory 
+        with_items:
+        - webregis
+        - mypage
+        - wallet-notification        
+      - name: Copy file
+        copy:
+          src: /opt/release/{{ time_deploy }}/{{ item }}/run
+          dest: /service/{{ item }}/
+          mode: 0777
+        with_items:
+        - webregis
+        - mypage
+        - wallet-notification                     
+    become: yes
+    become_user: root 
+
+10.rate.yml 
+
+---
+- hosts: bams001,bams002
+  gather_facts: false
+  vars:
+    ansible_user: mbt-user
+    ansible_ssh_pass: eW1fV4pD
+    ansible_sudo_pass: eW1fV4pD
+    time_deploy: "{{lookup('pipe','date +%Y%m%d')}}"
+  tasks:
+  - name: Deploy daemontools
+    block:
+      - name: Create folder for logs
+        file: 
+          path: "/opt/ams/daemontools/"
+          state: directory
+          recurse: yes     
+      - name: Create folder service
+        file:
+          path: /service/rate
+          state: directory          
+      - name: Copy file
+        copy:
+          src: /opt/release/{{ time_deploy }}/rate/run
+          dest: /service/rate/
+          mode: 0777          
+    become: yes
+    become_user: root  
+
+11.webadmin.yml  
+
+---
+- hosts: aamsadm001,aamsadm002
+  gather_facts: false
+  vars:
+    ansible_user: mbt-user
+    ansible_ssh_pass: eW1fV4pD
+    ansible_sudo_pass: eW1fV4pD
+    time_deploy: "{{lookup('pipe','date +%Y%m%d')}}"
+  tasks:
+  - name: Deploy daemontools
+    block:
+      - name: Create folder for logs
+        file: 
+          path: "/opt/ams/daemontools/"
+          state: directory
+          recurse: yes    
+      - name: Create folder service
+        file:
+          path: /service/webadmin
+          state: directory          
+      - name: Copy file
+        copy:
+          src: /opt/release/{{ time_deploy }}/webadmin/run
+          dest: /service/webadmin/
+          mode: 0777          
+    become: yes
+    become_user: root 
+
+
+
